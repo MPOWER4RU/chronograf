@@ -11,6 +11,7 @@ import hashlib
 import re
 import logging
 import argparse
+import json
 
 ################
 #### Chronograf Variables
@@ -828,10 +829,54 @@ def main(args):
                 args.upload_overwrite = True
             if not upload_packages(packages, bucket_name=args.bucket, overwrite=args.upload_overwrite):
                 return 1
-        logging.info("Packages created:")
+        package_output = {}
+        package_output["version"] = args.version
         for p in packages:
-            logging.info("{} (MD5={})".format(p.split('/')[-1:][0],
-                                              generate_md5_from_file(p)))
+            p_name = p.split('/')[-1:][0]
+            if ".asc" in p_name:
+                # Skip public keys
+                continue
+
+            arch = None
+            type = None
+            regex = None
+            if ".deb" in p_name:
+                type = "ubuntu"
+                regex = r"^.+_(.+)\.deb$"
+            elif ".rpm" in p_name:
+                type = "centos"
+                regex = r"^.+\.(.+)\.rpm$"
+            elif ".tar.gz" in p_name:
+                if "linux" in p_name:
+                    if "static" in p_name:
+                        type = "linux_static"
+                    else:
+                        type = "linux"
+                elif "darwin" in p_name:
+                    type = "darwin"
+                regex = r"^.+_(.+)\.tar.gz$"
+            elif ".zip" in p_name:
+                if "windows" in p_name:
+                    type = "windows"
+                regex = r"^.+_(.+)\.zip$"
+
+            if regex is None or type is None:
+                logging.error("Could not determine package type for: {}".format(p))
+                return 1
+            match = re.search(regex, p_name)
+            arch = match.groups()[0]
+            if arch is None:
+                logging.error("Could not determine arch for: {}".format(p))
+                return 1
+            if arch == "x86_64":
+                arch = "amd64"
+            elif arch == "x86_32":
+                arch = "i386"
+            package_output[str(arch) + "_" + str(type)] = {
+                "md5": generate_md5_from_file(p),
+                "filename": p_name,
+            }
+        print(json.dumps(package_output, sorted=True, indent=4))
     if orig_branch != get_current_branch():
         logging.info("Moving back to original git branch: {}".format(orig_branch))
         run("git checkout {}".format(orig_branch))
