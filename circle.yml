@@ -25,7 +25,7 @@ test:
     - make test
 
 deployment:
-  master:
+  testing:
     branch: ross-build-updates
     commands:
       - ./etc/scripts/docker/pull.sh
